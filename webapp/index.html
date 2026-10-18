@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Camera Capture</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:16px;background:#111;color:#fff}
+  button{padding:14px;font-size:16px;border:none;border-radius:10px;width:100%;margin-top:10px;cursor:pointer}
+  .primary{background:#2ea6ff;color:#fff}
+  .secondary{background:#333;color:#fff}
+  video,img{width:100%;border-radius:12px;background:#000}
+  .notice{background:#1a1a1a;border-right:4px solid #2ea6ff;padding:12px;border-radius:8px;margin:14px 0;line-height:1.7;font-size:14px}
+  .err{color:#ff6b6b;background:#2a1a1a;padding:10px;border-radius:8px;margin-top:12px}
+  h2{margin-top:0}
+  #preview,#confirm,#result,#err{display:none}
+</style>
+</head>
+<body>
+<div id="consent">
+  <h2>📸 التقاط صورة — إذن مطلوب</h2>
+  <div class="notice">
+    لما تضغط <b>السماح</b> هيحصل التالي:<br>
+    1. المتصفح هيطلب إذن الكاميرا.<br>
+    2. مفيش تسجيل بيحصل قبل ما تضغط <b>إرسال</b>.<br>
+    3. الصورة تروح لهذه المحادثة فقط.<br>
+    4. تقدر تلغي في أي لحظة.
+  </div>
+  <button class="primary" onclick="startCamera()">السماح بالكاميرا والمعاينة</button>
+  <button class="secondary" onclick="tg.close()">إلغاء</button>
+  <div id="err" class="err"></div>
+</div>
+<div id="preview">
+  <h2>معاينة حية — لم يُرسل شيء</h2>
+  <video id="video" autoplay playsinline muted></video>
+  <button class="primary" onclick="capture()">📷 التقاط الإطار</button>
+  <button class="secondary" onclick="stopCamera()">إلغاء</button>
+</div>
+<div id="confirm">
+  <h2>راجع الصورة — اضغط إرسال</h2>
+  <img id="snap">
+  <button class="primary" onclick="sendPhoto()">✅ إرسال للمحادثة</button>
+  <button class="secondary" onclick="retake()">↻ إعادة التصوير</button>
+</div>
+<div id="result">
+  <h2>✅ تم الإرسال</h2>
+  <p>الصورة وصلت لهذه المحادثة.</p>
+</div>
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready(); tg.expand();
+const $ = id => document.getElementById(id);
+const consent=$("consent"), preview=$("preview"), confirmEl=$("confirm"),
+      result=$("result"), video=$("video"), snap=$("snap"), err=$("err");
+let stream=null, b64=null;
+function show(el,on){ el.style.display = on ? "block" : "none"; }
+function fail(m){ err.textContent=m; show(err); }
+async function startCamera(){
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"},audio:false});
+    video.srcObject = stream;
+    show(consent,false); show(preview);
+  }catch(e){ fail("تعذّر فتح الكاميرا: "+e.message); }
+}
+function stopCamera(){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  show(preview,false); show(consent);
+}
+function capture(){
+  const c=document.createElement("canvas");
+  c.width=video.videoWidth; c.height=video.videoHeight;
+  c.getContext("2d").drawImage(video,0,0);
+  b64=c.toDataURL("image/jpeg",0.85);
+  snap.src=b64;
+  stopCamera(); show(confirmEl);
+}
+function retake(){ b64=null; show(confirmEl,false); startCamera(); }
+async function sendPhoto(){
+  if(!b64) return;
+  try{
+    const r=await fetch("/api/photo",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ init_data: tg.initData, image_b64: b64 })
+    });
+    if(!r.ok) throw new Error(await r.text());
+    show(confirmEl,false); show(result);
+    setTimeout(()=>tg.close(),1500);
+  }catch(e){ show(confirmEl,false); show(consent); fail("فشل الإرسال: "+e.message); }
+}
+</script>
+</body>
+  </html>
