@@ -1,1 +1,2 @@
-web: uvicorn main:app --host 0.0.0.0 --port $PORT
+web: gunicorn --chdir webapp app:app
+worker: python main.py
